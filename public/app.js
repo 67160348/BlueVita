@@ -21,7 +21,10 @@ function toast(message) {
 function saveCart() { localStorage.setItem("bluevita-cart", JSON.stringify(state.cart)); updateCartCount(); }
 function updateCartCount() { $("#cartCount").textContent = state.cart.reduce((sum, item) => sum + item.quantity, 0); }
 function showView(name) {
-  if (name === "admin" && state.user?.role !== "admin") name = "account";
+  if (name === "admin") {
+  renderAdmin();
+  loadAdminDashboard();
+}
   state.currentView = name;
   document.querySelectorAll(".view").forEach(el => el.hidden = el.id !== `${name}View`);
   window.scrollTo({ top: 0, behavior: "smooth" });
