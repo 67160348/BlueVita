@@ -324,5 +324,136 @@ app.delete("/api/admin/products/:id", auth("admin"), (req, res) => {
 });
 
 app.get("*", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
+// ======================================
+// BLUEVITA ADMIN DASHBOARD
+// สรุปยอดขายและข้อมูลธุรกิจ
+// เฉพาะผู้ดูแลระบบเท่านั้น
+// ======================================
+
+app.get("/api/admin/dashboard", auth("admin"), (_req, res) => {
+  const orders = readJson(ORDERS_FILE, []);
+  const users = readJson(USERS_FILE, []);
+  const products = readJson(PRODUCTS_FILE, []);
+
+  // ไม่นับคำสั่งซื้อที่ถูกยกเลิกในยอดขาย
+  const validOrders = orders.filter(
+    order => order.status !== "ยกเลิก"
+  );
+
+  const totalSales = validOrders.reduce(
+    (sum, order) => sum + Number(order.total || 0),
+    0
+  );
+
+  const totalItemsSold = validOrders.reduce(
+    (sum, order) =>
+      sum +
+      (Array.isArray(order.items)
+        ? order.items.reduce(
+            (itemSum, item) =>
+              itemSum + Number(item.quantity || 0),
+            0
+          )
+        : 0),
+    0
+  );
+
+  // สรุปสถานะคำสั่งซื้อ
+  const orderStatuses = {
+    "รอดำเนินการ": 0,
+    "กำลังจัดส่ง": 0,
+    "จัดส่งแล้ว": 0,
+    "ยกเลิก": 0
+  };
+
+  for (const order of orders) {
+    if (Object.hasOwn(orderStatuses, order.status)) {
+      orderStatuses[order.status]++;
+    }
+  }
+
+  // ยอดขายรายเดือน 12 เดือนล่าสุด
+  const now = new Date();
+  const monthlySales = [];
+
+  for (let offset = 11; offset >= 0; offset--) {
+    const date = new Date(
+      now.getFullYear(),
+      now.getMonth() - offset,
+      1
+    );
+
+    const year = date.getFullYear();
+    const month = date.getMonth();
+
+    const sales = validOrders
+      .filter(order => {
+        if (!order.createdAt) return false;
+
+        const orderDate = new Date(order.createdAt);
+
+        return (
+          !Number.isNaN(orderDate.getTime()) &&
+          orderDate.getFullYear() === year &&
+          orderDate.getMonth() === month
+        );
+      })
+      .reduce(
+        (sum, order) => sum + Number(order.total || 0),
+        0
+      );
+
+    monthlySales.push({
+      month: `${year}-${String(month + 1).padStart(2, "0")}`,
+      sales
+    });
+  }
+
+  // สินค้าขายดี 5 อันดับ
+  const productSales = {};
+
+  for (const order of validOrders) {
+    if (!Array.isArray(order.items)) continue;
+
+    for (const item of order.items) {
+      const id = item.id;
+
+      if (!productSales[id]) {
+        productSales[id] = {
+          productId: id,
+          name: item.name || "ไม่ระบุชื่อสินค้า",
+          quantity: 0,
+          revenue: 0
+        };
+      }
+
+      productSales[id].quantity += Number(item.quantity || 0);
+      productSales[id].revenue +=
+        Number(item.price || 0) * Number(item.quantity || 0);
+    }
+  }
+
+  const topProducts = Object.values(productSales)
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 5);
+
+  // จำนวนสมาชิก ไม่นับบัญชีแอดมิน
+  const totalMembers = users.filter(
+    user => user.role !== "admin"
+  ).length;
+
+  res.json({
+    summary: {
+      totalSales,
+      totalOrders: validOrders.length,
+      totalItemsSold,
+      totalMembers,
+      totalProducts: products.length
+    },
+    monthlySales,
+    topProducts,
+    orderStatuses
+  });
+});
 
 app.listen(PORT, () => console.log(`BlueVita running at http://localhost:${PORT}`));
