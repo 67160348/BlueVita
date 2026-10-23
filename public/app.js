@@ -123,6 +123,11 @@ alert(
 );
 
 showView("orders");
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
 function updateAccountUI() {
   const signedIn = Boolean(state.user);
   $("#accountButton").textContent = signedIn ? state.user.name : "เข้าสู่ระบบ";
