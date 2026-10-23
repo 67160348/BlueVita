@@ -1,41 +1,58 @@
-<section id="adminDashboard" style="padding: 20px;">
-  <h2>BlueVita Business Dashboard</h2>
-  <p>สรุปผลการขายและภาพรวมธุรกิจ</p>
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BlueVita Admin Dashboard</title>
+  <link rel="stylesheet" href="admin.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <section id="adminDashboard" style="padding: 20px;">
+    <h2>BlueVita Business Dashboard</h2>
+    <p>สรุปผลการขายและภาพรวมธุรกิจ</p>
 
-  <div class="dashboard-cards">
-    <div class="dashboard-card">
-      <h3>ยอดขายรวม</h3>
-      <p id="dashSales">กำลังโหลด...</p>
+    <div class="dashboard-cards">
+      <div class="dashboard-card">
+        <h3>ยอดขายรวม</h3>
+        <p id="dashSales">กำลังโหลด...</p>
+      </div>
+
+      <div class="dashboard-card">
+        <h3>คำสั่งซื้อ</h3>
+        <p id="dashOrders">กำลังโหลด...</p>
+      </div>
+
+      <div class="dashboard-card">
+        <h3>สินค้าที่ขาย</h3>
+        <p id="dashItems">กำลังโหลด...</p>
+      </div>
+
+      <div class="dashboard-card">
+        <h3>สมาชิก</h3>
+        <p id="dashMembers">กำลังโหลด...</p>
+      </div>
     </div>
 
-    <div class="dashboard-card">
-      <h3>คำสั่งซื้อ</h3>
-      <p id="dashOrders">กำลังโหลด...</p>
+    <div class="dashboard-chart">
+      <h3>ยอดขายรายเดือน</h3>
+      <canvas id="monthlySalesChart"></canvas>
     </div>
 
-    <div class="dashboard-card">
-      <h3>สินค้าที่ขาย</h3>
-      <p id="dashItems">กำลังโหลด...</p>
+    <div class="dashboard-chart">
+      <h3>สินค้าขายดี 5 อันดับ</h3>
+      <canvas id="topProductsChart"></canvas>
     </div>
 
-    <div class="dashboard-card">
-      <h3>สมาชิก</h3>
-      <p id="dashMembers">กำลังโหลด...</p>
+    <div class="dashboard-chart">
+      <h3>สถานะคำสั่งซื้อ</h3>
+      <canvas id="orderStatusChart"></canvas>
     </div>
-  </div>
+  </section>
 
-  <div class="dashboard-chart">
-    <h3>ยอดขายรายเดือน</h3>
-    <canvas id="monthlySalesChart"></canvas>
-  </div>
-
-  <div class="dashboard-chart">
-    <h3>สินค้าขายดี 5 อันดับ</h3>
-    <canvas id="topProductsChart"></canvas>
-  </div>
-
-  <div class="dashboard-chart">
-    <h3>สถานะคำสั่งซื้อ</h3>
-    <canvas id="orderStatusChart"></canvas>
-  </div>
-</section>
+  <script src="admin.js"></script>
+  <script>
+    loadAdminDashboard();
+  </script>
+</body>
+</html>
