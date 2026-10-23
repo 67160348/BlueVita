@@ -18,6 +18,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "development-only-change-me";
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
+app.use('/images', express.static(path.join(__dirname, 'images')));
 
 function readJson(file, fallback = []) {
   try { return JSON.parse(fs.readFileSync(file, "utf8")); }
