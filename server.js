@@ -75,11 +75,42 @@ app.get("/api/products/:id/reviews", (req, res) => {
 });
 
 app.get("/api/rewards", auth(), (req, res) => {
-  const order = orders.find(
-  o => o.id === orderId &&
-       o.userId === req.user.id &&
-       o.status !== "ยกเลิก"
-);
+  const orders = readJson(ORDERS_FILE, []).filter(
+    o => o.userId === req.user.id && o.status !== "ยกเลิก"
+  );
+
+  const reviews = readJson(REVIEWS_FILE, []);
+  const eligible = [];
+
+  for (const order of orders) {
+    for (const item of order.items) {
+      const alreadyReviewed = reviews.some(
+        r =>
+          r.userId === req.user.id &&
+          r.orderId === order.id &&
+          r.productId === item.id
+      );
+
+      if (!alreadyReviewed) {
+        eligible.push({
+          orderId: order.id,
+          productId: item.id,
+          productName: item.name
+        });
+      }
+    }
+  }
+
+  const user = readJson(USERS_FILE, []).find(
+    u => u.id === req.user.id
+  );
+
+  res.json({
+    points: Number(user?.points || 0),
+    eligible,
+    vouchers: user?.vouchers || []
+  });
+});
   const reviews = readJson(REVIEWS_FILE, []);
   const eligible = [];
   for (const order of orders) for (const item of order.items) {
