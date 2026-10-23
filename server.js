@@ -111,30 +111,26 @@ app.get("/api/rewards", auth(), (req, res) => {
     vouchers: user?.vouchers || []
   });
 });
-  const reviews = readJson(REVIEWS_FILE, []);
-  const eligible = [];
-  for (const order of orders) for (const item of order.items) {
-    if (!reviews.some(r => r.userId === req.user.id && r.orderId === order.id && r.productId === item.id)) {
-      eligible.push({ orderId: order.id, productId: item.id, productName: item.name });
-    }
-  }
-  const user = readJson(USERS_FILE, []).find(u => u.id === req.user.id);
-  res.json({ points: Number(user?.points || 0), eligible });
-});
-
+  
 app.post("/api/reviews", auth(), (req, res) => {
   const { orderId, productId, rating, comment } = req.body || {};
   if (!orderId || !productId || !Number.isInteger(Number(rating)) || Number(rating) < 1 || Number(rating) > 5 || typeof comment !== "string" || comment.trim().length < 3 || comment.trim().length > 500) {
     return res.status(400).json({ error: "กรุณาให้คะแนน 1–5 และเขียนรีวิว 3–500 ตัวอักษร" });
   }
-  const orders = readJson(ORDERS_FILE, []);
+    const orders = readJson(ORDERS_FILE, []);
   const order = orders.find(
-  o =>
-    o.id === orderId &&
-    o.userId === req.user.id &&
-    o.status !== "ยกเลิก"
-);
-  if (!order || !order.items.some(i => i.id === productId)) return res.status(403).json({ error: "รีวิวได้เฉพาะสินค้าที่ซื้อและจัดส่งแล้วเท่านั้น" });
+    o =>
+      o.id === orderId &&
+      o.userId === req.user.id &&
+      o.status !== "ยกเลิก"
+  );
+
+  if (!order || !order.items.some(i => i.id === productId)) {
+    return res.status(403).json({
+      error: "รีวิวได้เฉพาะสินค้าที่ซื้อและไม่ถูกยกเลิกเท่านั้น"
+    });
+  }
+
   const reviews = readJson(REVIEWS_FILE, []);
   if (reviews.some(r => r.userId === req.user.id && r.orderId === orderId && r.productId === productId)) {
     return res.status(409).json({ error: "คุณรีวิวสินค้านี้ในคำสั่งซื้อนี้แล้ว" });
