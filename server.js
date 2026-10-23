@@ -108,6 +108,60 @@ app.post("/api/reviews", auth(), (req, res) => {
   writeJson(REVIEWS_FILE, reviews); writeJson(USERS_FILE, user);
   res.status(201).json({ message: "ขอบคุณสำหรับรีวิว", points: account.points });
 });
+// =====================================
+// BLUEVITA REWARDS: แลกคะแนนเป็นคูปอง
+// 10,000 คะแนน = คูปอง 10 บาท
+// =====================================
+
+const REDEEM_POINTS = 10000;
+const COUPON_VALUE = 10;
+
+app.post("/api/rewards/redeem", auth(), (req, res) => {
+  const users = readJson(USERS_FILE, []);
+  const user = users.find(u => u.id === req.user.id);
+
+  if (!user) {
+    return res.status(404).json({
+      error: "ไม่พบบัญชีสมาชิก"
+    });
+  }
+
+  const currentPoints = Number(user.points || 0);
+
+  if (currentPoints < REDEEM_POINTS) {
+    return res.status(400).json({
+      error: "คะแนนยังไม่เพียงพอ ต้องมี 10,000 คะแนนจึงแลกได้"
+    });
+  }
+
+  // หักคะแนนเมื่อแลกคูปองสำเร็จ
+  user.points = currentPoints - REDEEM_POINTS;
+
+  // สร้างรายการคูปองประจำบัญชี
+  if (!Array.isArray(user.vouchers)) {
+    user.vouchers = [];
+  }
+
+  const voucher = {
+    id: `BV10-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 7)
+      .toUpperCase()}`,
+    value: COUPON_VALUE,
+    status: "พร้อมใช้",
+    createdAt: new Date().toISOString()
+  };
+
+  user.vouchers.push(voucher);
+
+  writeJson(USERS_FILE, users);
+
+  return res.json({
+    message: "แลกคูปองสำเร็จ!",
+    points: user.points,
+    voucher
+  });
+});
 
 
 
