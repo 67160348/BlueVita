@@ -323,7 +323,6 @@ app.delete("/api/admin/products/:id", auth("admin"), (req, res) => {
   res.json({ message: "ลบสินค้าแล้ว" });
 });
 
-app.get("*", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 // ======================================
 // BLUEVITA ADMIN DASHBOARD
 // สรุปยอดขายและข้อมูลธุรกิจ
@@ -455,5 +454,5 @@ app.get("/api/admin/dashboard", auth("admin"), (_req, res) => {
     orderStatuses
   });
 });
-
+app.get("*", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 app.listen(PORT, () => console.log(`BlueVita running at http://localhost:${PORT}`));
