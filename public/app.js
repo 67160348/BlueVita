@@ -110,9 +110,19 @@ async function checkout(form) {
   const fd = new FormData(form);
   try {
     const result = await api("/orders", { method:"POST", body:JSON.stringify({ items:state.cart, shippingName:fd.get("shippingName"), phone:fd.get("phone"), address:fd.get("address") }) });
-    state.cart = []; saveCart(); await loadProducts(); toast(`สั่งซื้อสำเร็จ เลขที่ ${result.order.id}`); showView("orders");
-  } catch (e) { toast(e.message); }
-}
+    state.cart = [];
+saveCart();
+
+await loadProducts();
+
+alert(
+  `สั่งซื้อสำเร็จ! 🎉\n` +
+  `เลขที่คำสั่งซื้อ: ${result.order.id}\n\n` +
+  `เมื่อได้รับสินค้าแล้ว อย่าลืมรีวิวเพื่อรับ 1 คะแนนต่อสินค้า!\n` +
+  `เข้าเมนู "คะแนนของฉัน" เพื่อดูรายการที่รีวิวได้`
+);
+
+showView("orders");
 function updateAccountUI() {
   const signedIn = Boolean(state.user);
   $("#accountButton").textContent = signedIn ? state.user.name : "เข้าสู่ระบบ";
