@@ -128,7 +128,12 @@ app.post("/api/reviews", auth(), (req, res) => {
     return res.status(400).json({ error: "กรุณาให้คะแนน 1–5 และเขียนรีวิว 3–500 ตัวอักษร" });
   }
   const orders = readJson(ORDERS_FILE, []);
-  const order = orders.find(o => o.id === orderId && o.userId === req.user.id && o.status === "จัดส่งแล้ว");
+  const order = orders.find(
+  o =>
+    o.id === orderId &&
+    o.userId === req.user.id &&
+    o.status !== "ยกเลิก"
+);
   if (!order || !order.items.some(i => i.id === productId)) return res.status(403).json({ error: "รีวิวได้เฉพาะสินค้าที่ซื้อและจัดส่งแล้วเท่านั้น" });
   const reviews = readJson(REVIEWS_FILE, []);
   if (reviews.some(r => r.userId === req.user.id && r.orderId === orderId && r.productId === productId)) {
