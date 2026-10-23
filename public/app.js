@@ -106,27 +106,284 @@ function renderCart() {
   content.innerHTML = `<div class="cart-layout"><div class="cart-list">${cartRows()}</div><div class="summary-card"><h3>สรุปคำสั่งซื้อ</h3><div class="summary-line"><span>จำนวนสินค้า</span><span>${validItems.reduce((s,i)=>s+i.quantity,0)} ชิ้น</span></div><div class="summary-line"><span>ค่าจัดส่ง</span><span>คำนวณภายหลัง</span></div><div class="summary-line summary-total"><span>รวมสินค้า</span><span>${money(total)}</span></div><form id="checkoutForm" class="checkout-form"><h3>ข้อมูลจัดส่ง</h3><label>ชื่อผู้รับ<input name="shippingName" required></label><label>เบอร์โทรศัพท์<input name="phone" type="tel" required></label><label>ที่อยู่จัดส่ง<textarea name="address" rows="3" required></textarea></label><button class="button button-primary full" type="submit">ยืนยันคำสั่งซื้อ</button><small style="color:#7b8da0">เดโมนี้ยังไม่เชื่อมระบบชำระเงินจริง</small></form></div></div>`;
 }
 async function checkout(form) {
-  if (!state.user) { toast("เข้าสู่ระบบก่อนสั่งซื้อนะ"); showView("account"); return; }
+  if (!state.user) {
+    toast("เข้าสู่ระบบก่อนสั่งซื้อนะ");
+    showView("account");
+    return;
+  }
+
   const fd = new FormData(form);
+
   try {
-    const result = await api("/orders", { method:"POST", body:JSON.stringify({ items:state.cart, shippingName:fd.get("shippingName"), phone:fd.get("phone"), address:fd.get("address") }) });
+    const result = await api("/orders", {
+      method: "POST",
+      body: JSON.stringify({
+        items: state.cart,
+        shippingName: fd.get("shippingName"),
+        phone: fd.get("phone"),
+        address: fd.get("address")
+      })
+    });
+
+    // เก็บรายการสินค้าที่ซื้อไว้สำหรับหน้าต่างรีวิว
+    const purchasedItems = result.order.items.map(item => ({
+      id: item.id,
+      name: item.name,
+      orderId: result.order.id
+    }));
+
     state.cart = [];
-saveCart();
+    saveCart();
 
-await loadProducts();
+    await loadProducts();
 
-alert(
-  `สั่งซื้อสำเร็จ! 🎉\n` +
-  `เลขที่คำสั่งซื้อ: ${result.order.id}\n\n` +
-  `เมื่อได้รับสินค้าแล้ว อย่าลืมรีวิวเพื่อรับ 1 คะแนนต่อสินค้า!\n` +
-  `เข้าเมนู "คะแนนของฉัน" เพื่อดูรายการที่รีวิวได้`
-);
+    // แจ้งว่าซื้อสำเร็จ
+    alert(
+      `สั่งซื้อสำเร็จ! 🎉\n` +
+      `เลขที่คำสั่งซื้อ: ${result.order.id}`
+    );
 
-showView("orders");
+    // เปิดหน้าต่างรีวิวทันทีหลังสั่งซื้อ
+    await showPurchaseReviews(purchasedItems);
+
+    showView("orders");
+
   } catch (e) {
     toast(e.message);
   }
 }
+async function showPurchaseReviews(items) {
+  if (!items.length) return;
+
+  let index = 0;
+  let submittedCount = 0;
+
+  // สร้างหน้าต่างรีวิว
+  let modal = document.getElementById("purchaseReviewModal");
+
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "purchaseReviewModal";
+
+    modal.style.cssText = `
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      background: rgba(20, 40, 70, 0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    `;
+
+    modal.innerHTML = `
+      <div style="
+        background: white;
+        width: 100%;
+        max-width: 440px;
+        padding: 25px;
+        border-radius: 22px;
+        box-shadow: 0 15px 50px rgba(0,0,0,.18);
+        color: #243b53;
+      ">
+        <div style="text-align:center;font-size:38px">⭐</div>
+        <h2 style="text-align:center;margin:8px 0">
+          รีวิวสินค้าของคุณ
+        </h2>
+        <p id="purchaseReviewProgress"
+           style="text-align:center;color:#718096;font-size:13px"></p>
+
+        <h3 id="purchaseReviewProduct"
+            style="font-size:18px;margin:20px 0 12px"></h3>
+
+        <label style="display:block;font-weight:600;margin-bottom:8px">
+          ให้คะแนนสินค้า
+        </label>
+
+        <div id="purchaseReviewStars"
+             style="display:flex;justify-content:center;gap:10px;margin-bottom:20px">
+          ${[1, 2, 3, 4, 5].map(n => `
+            <button type="button"
+              data-review-star="${n}"
+              style="border:0;background:none;font-size:32px;cursor:pointer;padding:2px">
+              ☆
+            </button>
+          `).join("")}
+        </div>
+
+        <label for="purchaseReviewComment"
+               style="display:block;font-weight:600;margin-bottom:8px">
+          ความคิดเห็นของคุณ
+        </label>
+
+        <textarea id="purchaseReviewComment"
+          minlength="3"
+          maxlength="500"
+          placeholder="แชร์ประสบการณ์การใช้สินค้านี้ (อย่างน้อย 3 ตัวอักษร)"
+          style="
+            width:100%;
+            box-sizing:border-box;
+            min-height:110px;
+            padding:12px;
+            border:1px solid #d6e2ef;
+            border-radius:12px;
+            font:inherit;
+            resize:vertical;
+          "></textarea>
+
+        <p id="purchaseReviewMessage"
+           style="color:#d14343;font-size:13px;min-height:18px"></p>
+
+        <button id="purchaseReviewSubmit"
+          class="button button-primary"
+          style="width:100%;margin-bottom:10px">
+          ส่งรีวิว รับ 1 คะแนน
+        </button>
+
+        <button id="purchaseReviewSkip"
+          type="button"
+          style="
+            width:100%;
+            border:0;
+            background:transparent;
+            padding:10px;
+            color:#718096;
+            cursor:pointer;
+          ">
+          ไว้รีวิวภายหลัง
+        </button>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+  }
+
+  let rating = 5;
+  let finished = false;
+
+  const productTitle = modal.querySelector("#purchaseReviewProduct");
+  const progress = modal.querySelector("#purchaseReviewProgress");
+  const stars = modal.querySelector("#purchaseReviewStars");
+  const comment = modal.querySelector("#purchaseReviewComment");
+  const message = modal.querySelector("#purchaseReviewMessage");
+  const submit = modal.querySelector("#purchaseReviewSubmit");
+  const skip = modal.querySelector("#purchaseReviewSkip");
+
+  function updateStars() {
+    stars.querySelectorAll("[data-review-star]").forEach(button => {
+      const value = Number(button.dataset.reviewStar);
+      button.textContent = value <= rating ? "★" : "☆";
+      button.style.color = value <= rating ? "#f4b400" : "#b5c1cf";
+    });
+  }
+
+  function cleanup() {
+    modal.style.display = "none";
+    stars.removeEventListener("click", onStarClick);
+    submit.removeEventListener("click", onSubmit);
+    skip.removeEventListener("click", onSkip);
+  }
+
+  function onStarClick(event) {
+    const button = event.target.closest("[data-review-star]");
+    if (!button) return;
+
+    rating = Number(button.dataset.reviewStar);
+    updateStars();
+  }
+
+  function finish() {
+    if (finished) return;
+    finished = true;
+    cleanup();
+
+    if (submittedCount > 0) {
+      toast(`ส่งรีวิวแล้ว ${submittedCount} รายการ รับ ${submittedCount} คะแนน 🎉`);
+    }
+  }
+
+  function onSkip() {
+    finish();
+  }
+
+  async function onSubmit() {
+    const text = comment.value.trim();
+
+    if (text.length < 3 || text.length > 500) {
+      message.textContent = "กรุณาเขียนรีวิว 3–500 ตัวอักษร";
+      return;
+    }
+
+    submit.disabled = true;
+    message.textContent = "กำลังบันทึกรีวิว...";
+
+    const item = items[index];
+
+    try {
+      await api("/reviews", {
+        method: "POST",
+        body: JSON.stringify({
+          orderId: item.orderId,
+          productId: item.id,
+          rating,
+          comment: text
+        })
+      });
+
+      submittedCount++;
+
+      // อัปเดตคะแนนในข้อมูลผู้ใช้ที่หน้าเว็บเก็บไว้
+      try {
+        const me = await api("/auth/me");
+        state.user = me.user;
+        localStorage.setItem("bluevita-user", JSON.stringify(state.user));
+        updateAccountUI();
+      } catch (_) {}
+
+      index++;
+
+      if (index >= items.length) {
+        finish();
+        return;
+      }
+
+      renderCurrentItem();
+
+    } catch (e) {
+      message.textContent = e.message;
+    } finally {
+      submit.disabled = false;
+    }
+  }
+
+  function renderCurrentItem() {
+    rating = 5;
+    comment.value = "";
+    message.textContent = "";
+    progress.textContent = `รายการที่ ${index + 1} จาก ${items.length}`;
+    productTitle.textContent = items[index].name;
+    submit.textContent = "ส่งรีวิว รับ 1 คะแนน";
+    updateStars();
+  }
+
+  stars.addEventListener("click", onStarClick);
+  submit.addEventListener("click", onSubmit);
+  skip.addEventListener("click", onSkip);
+
+  modal.style.display = "flex";
+  renderCurrentItem();
+
+  // รอให้ผู้ใช้ส่งรีวิวหรือกดข้าม
+  await new Promise(resolve => {
+    const originalCleanup = cleanup;
+
+    cleanup = function () {
+      originalCleanup();
+      resolve();
+    };
+  });
+}
+
 
 function updateAccountUI() {
   const signedIn = Boolean(state.user);
