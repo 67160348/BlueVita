@@ -75,7 +75,11 @@ app.get("/api/products/:id/reviews", (req, res) => {
 });
 
 app.get("/api/rewards", auth(), (req, res) => {
-  const orders = readJson(ORDERS_FILE, []).filter(o => o.userId === req.user.id && o.status === "จัดส่งแล้ว");
+  const order = orders.find(
+  o => o.id === orderId &&
+       o.userId === req.user.id &&
+       o.status !== "ยกเลิก"
+);
   const reviews = readJson(REVIEWS_FILE, []);
   const eligible = [];
   for (const order of orders) for (const item of order.items) {
