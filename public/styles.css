@@ -68,3 +68,151 @@ input:focus,select:focus,textarea:focus{border-color:#7dbbf0!important}
 .disclaimer{border-radius:14px;background:#f6faff;border:1px solid #e4eff9;padding:16px;line-height:1.8}
 @media(max-width:760px){.detail-layout{grid-template-columns:1fr;gap:25px}.detail-image{min-height:280px}.detail-image img{height:250px}.review-eligible{grid-template-columns:1fr;gap:14px}.review-list{grid-template-columns:1fr}.points-banner strong{font-size:34px}}
 @media(max-width:640px){.product-grid{gap:12px}.product-info{padding:12px}.product-info h3{font-size:14px}.product-info p{font-size:11px;min-height:0}.product-image{height:155px}.detail-facts{gap:6px}.detail-facts div{padding:9px}.detail-facts b{font-size:12px}.hero{border-radius:22px}.main-nav{gap:14px}.main-nav button{font-size:12px}.image-view-label{font-size:10px;padding:5px 7px}}
+/* ==========================================
+   BLUEVITA SALES DASHBOARD
+   ========================================== */
+
+.dashboard-message {
+  margin: 20px 0;
+  padding: 18px;
+  border-radius: 14px;
+  background: #f0f7ff;
+  border: 1px solid #cfe5fa;
+  color: #315b7e;
+  line-height: 1.8;
+}
+
+.dashboard-message p {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.dashboard-card {
+  background: #fff;
+  border: 1px solid #dceaf7;
+  border-radius: 18px;
+  padding: 22px;
+  box-shadow: 0 8px 24px #164b7908;
+  min-width: 0;
+}
+
+.dashboard-card > span {
+  display: block;
+  color: #637c93;
+  font-size: 13px;
+}
+
+.dashboard-card strong {
+  display: block;
+  margin: 13px 0 8px;
+  color: #1677d2;
+  font-size: clamp(20px, 2.4vw, 29px);
+  overflow-wrap: anywhere;
+}
+
+.dashboard-card small {
+  color: #8a9bad;
+  font-size: 11px;
+}
+
+.dashboard-panel {
+  background: #fff;
+  border: 1px solid #dceaf7;
+  border-radius: 18px;
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 8px 24px #164b7908;
+  min-width: 0;
+}
+
+.dashboard-panel h2 {
+  font-size: 18px;
+  margin: 0 0 8px;
+}
+
+.dashboard-description {
+  color: #7c91a5;
+  font-size: 12px;
+  margin-bottom: 15px;
+}
+
+#salesChart {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
+.dashboard-lower {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.dashboard-list-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 0;
+  border-bottom: 1px solid #edf3f8;
+  font-size: 13px;
+}
+
+.dashboard-list-row:last-child {
+  border-bottom: none;
+}
+
+.dashboard-list-row span {
+  overflow-wrap: anywhere;
+}
+
+.dashboard-list-row strong {
+  color: #1677d2;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.dashboard-empty {
+  color: #8194a7;
+  font-size: 13px;
+  padding: 15px 0;
+}
+
+#refreshDashboard {
+  margin-top: 5px;
+}
+
+@media (max-width: 900px) {
+  .dashboard-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-lower {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .dashboard-cards {
+    gap: 10px;
+  }
+
+  .dashboard-card {
+    padding: 15px;
+  }
+
+  .dashboard-panel {
+    padding: 17px;
+  }
+
+  .dashboard-list-row {
+    font-size: 12px;
+  }
+}
