@@ -551,11 +551,14 @@ async function renderDashboard() {
       : '<p class="dashboard-empty">ยังไม่มีข้อมูลสินค้าที่ขายได้</p>';
 
     // วาดกราฟยอดขายรายเดือน
-    drawSalesChart(data.monthlySales || []);
+    // แสดง Dashboard ก่อน เพื่อให้คำนวณขนาดกราฟได้ถูกต้อง
+message.hidden = true;
+content.hidden = false;
 
-    message.hidden = true;
-    content.hidden = false;
-
+// วาดกราฟยอดขายรายเดือน
+requestAnimationFrame(() => {
+  drawSalesChart(data.monthlySales || []);
+});
   } catch (error) {
     message.hidden = false;
     content.hidden = true;
