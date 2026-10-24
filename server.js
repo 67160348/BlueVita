@@ -288,6 +288,133 @@ app.get("/api/admin/orders", auth("admin"), (_req, res) => {
 });
 
 app.patch("/api/admin/orders/:id", auth("admin"), (req, res) => {
+  // ============================================
+// BLUEVITA SALES DASHBOARD
+// ข้อมูลจากคำสั่งซื้อจริง และเฉพาะแอดมินเท่านั้น
+// ============================================
+
+app.get("/api/admin/dashboard", auth("admin"), (_req, res) => {
+  try {
+    const orders = readJson(ORDERS_FILE, []);
+    const users = readJson(USERS_FILE, []);
+    const products = readJson(PRODUCTS_FILE, []);
+
+    // ไม่นับคำสั่งซื้อที่ยกเลิก
+    const validOrders = orders.filter(
+      order => order.status !== "ยกเลิก"
+    );
+
+    // ยอดขายรวมจากคำสั่งซื้อที่ไม่ถูกยกเลิก
+    const totalSales = validOrders.reduce(
+      (sum, order) => sum + Number(order.total || 0),
+      0
+    );
+
+    // จำนวนสินค้าที่ขายได้
+    const totalItemsSold = validOrders.reduce(
+      (sum, order) =>
+        sum +
+        (Array.isArray(order.items)
+          ? order.items.reduce(
+              (itemSum, item) =>
+                itemSum + Number(item.quantity || 0),
+              0
+            )
+          : 0),
+      0
+    );
+
+    // จำนวนสมาชิก ไม่รวมแอดมิน
+    const totalMembers = users.filter(
+      user => user.role !== "admin"
+    ).length;
+
+    // สรุปยอดขายรายเดือนย้อนหลัง 12 เดือน
+    const monthlySales = [];
+    const now = new Date();
+
+    for (let i = 11; i >= 0; i--) {
+      const date = new Date(
+        now.getFullYear(),
+        now.getMonth() - i,
+        1
+      );
+
+      const year = date.getFullYear();
+      const month = date.getMonth();
+
+      const sales = validOrders
+        .filter(order => {
+          const orderDate = new Date(order.createdAt);
+
+          return (
+            !Number.isNaN(orderDate.getTime()) &&
+            orderDate.getFullYear() === year &&
+            orderDate.getMonth() === month
+          );
+        })
+        .reduce(
+          (sum, order) => sum + Number(order.total || 0),
+          0
+        );
+
+      monthlySales.push({
+        month: `${year}-${String(month + 1).padStart(2, "0")}`,
+        sales
+      });
+    }
+
+    // สรุปจำนวนคำสั่งซื้อแต่ละสถานะ
+    const statusSummary = {};
+
+    validOrders.forEach(order => {
+      const status = order.status || "ไม่ระบุ";
+      statusSummary[status] =
+        (statusSummary[status] || 0) + 1;
+    });
+
+    // สินค้าขายดี 5 อันดับแรก
+    const productSales = {};
+
+    validOrders.forEach(order => {
+      if (!Array.isArray(order.items)) return;
+
+      order.items.forEach(item => {
+        const id = String(item.id || item.productId || item.name);
+
+        if (!productSales[id]) {
+          productSales[id] = {
+            name: item.name || "ไม่ระบุชื่อสินค้า",
+            quantity: 0
+          };
+        }
+
+        productSales[id].quantity += Number(item.quantity || 0);
+      });
+    });
+
+    const topProducts = Object.values(productSales)
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, 5);
+
+    res.json({
+      totalSales,
+      totalOrders: validOrders.length,
+      totalItemsSold,
+      totalMembers,
+      monthlySales,
+      statusSummary,
+      topProducts
+    });
+
+  } catch (error) {
+    console.error("Dashboard error:", error);
+
+    res.status(500).json({
+      error: "ไม่สามารถโหลดข้อมูล Dashboard ได้"
+    });
+  }
+});
   const allowed = ["รอดำเนินการ", "กำลังจัดส่ง", "จัดส่งแล้ว", "ยกเลิก"];
   const { status } = req.body || {};
   if (!allowed.includes(status)) return res.status(400).json({ error: "สถานะไม่ถูกต้อง" });
