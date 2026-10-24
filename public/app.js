@@ -21,9 +21,35 @@ function toast(message) {
 function saveCart() { localStorage.setItem("bluevita-cart", JSON.stringify(state.cart)); updateCartCount(); }
 function updateCartCount() { $("#cartCount").textContent = state.cart.reduce((sum, item) => sum + item.quantity, 0); }
 function showView(name) {
-  if (name === "admin") {
-  renderAdmin();
-  loadAdminDashboard();
+
+  // ป้องกันสมาชิกทั่วไปเข้าหน้าแอดมิน
+  if (
+    (name === "admin" || name === "dashboard") &&
+    state.user?.role !== "admin"
+  ) {
+    name = "account";
+  }
+
+  state.currentView = name;
+
+  // แสดงเฉพาะหน้าที่เลือก
+  document.querySelectorAll(".view").forEach(el => {
+    el.hidden = el.id !== `${name}View`;
+  });
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+
+  if (name === "shop") renderShop();
+  if (name === "cart") renderCart();
+  if (name === "orders") renderOrders();
+  if (name === "detail") renderProductDetail();
+  if (name === "rewards") renderRewards();
+  if (name === "admin") renderAdmin();
+  if (name === "dashboard") renderDashboard();
+  if (name === "account") updateAccountUI();
 }
   state.currentView = name;
   document.querySelectorAll(".view").forEach(el => el.hidden = el.id !== `${name}View`);
@@ -390,12 +416,24 @@ async function showPurchaseReviews(items) {
 
 function updateAccountUI() {
   const signedIn = Boolean(state.user);
-  $("#accountButton").textContent = signedIn ? state.user.name : "เข้าสู่ระบบ";
-  $("#adminNav").hidden = state.user?.role !== "admin";
+  const isAdmin = state.user?.role === "admin";
+
+  $("#accountButton").textContent =
+    signedIn ? state.user.name : "เข้าสู่ระบบ";
+
+  $("#adminNav").hidden = !isAdmin;
+  $("#dashboardNav").hidden = !isAdmin;
+
   $("#logoutButton").hidden = !signedIn;
   $("#authForm").hidden = signedIn;
-  if (signedIn) $("#authMessage").textContent = `เข้าสู่ระบบแล้ว: ${state.user.name} (${state.user.role === "admin" ? "แอดมิน" : "สมาชิก"})`;
-  else $("#authMessage").textContent = "";
+
+  if (signedIn) {
+    $("#authMessage").textContent =
+      `เข้าสู่ระบบแล้ว: ${state.user.name} ` +
+      `(${isAdmin ? "แอดมิน" : "สมาชิก"})`;
+  } else {
+    $("#authMessage").textContent = "";
+  }
 }
 function setAuthMode(mode) {
   state.authMode = mode;
@@ -464,6 +502,202 @@ document.addEventListener("change", async event => {
     try { await api(`/admin/orders/${orderId}`, { method:"PATCH", body:JSON.stringify({ status:event.target.value }) }); toast("อัปเดตสถานะแล้ว"); }
     catch(e) { toast(e.message); }
   }
+});
+// ============================================
+// BLUEVITA DASHBOARD RENDERER
+// ============================================
+
+async function renderDashboard() {
+  const message = $("#dashboardMessage");
+  const content = $("#dashboardContent");
+
+  if (state.user?.role !== "admin") {
+    showView("account");
+    return;
+  }
+
+  message.hidden = false;
+  message.textContent = "กำลังโหลดข้อมูล...";
+  content.hidden = true;
+
+  try {
+    // ดึงข้อมูลจาก API ที่ตรวจสอบสิทธิ์แอดมิน
+    const data = await api("/admin/dashboard");
+
+    $("#dashSales").textContent = money(data.totalSales);
+    $("#dashOrders").textContent =
+      Number(data.totalOrders || 0).toLocaleString("th-TH");
+
+    $("#dashItems").textContent =
+      Number(data.totalItemsSold || 0).toLocaleString("th-TH");
+
+    $("#dashMembers").textContent =
+      Number(data.totalMembers || 0).toLocaleString("th-TH");
+
+    // สรุปสถานะคำสั่งซื้อ
+    const statuses = Object.entries(data.statusSummary || {});
+
+    $("#dashStatuses").innerHTML = statuses.length
+      ? statuses.map(([status, count]) => `
+          <div class="dashboard-list-row">
+            <span>${escapeHtml(status)}</span>
+            <strong>${Number(count).toLocaleString("th-TH")} รายการ</strong>
+          </div>
+        `).join("")
+      : '<p class="dashboard-empty">ยังไม่มีคำสั่งซื้อ</p>';
+
+    // สินค้าขายดี
+    const topProducts = data.topProducts || [];
+
+    $("#dashTopProducts").innerHTML = topProducts.length
+      ? topProducts.map((product, index) => `
+          <div class="dashboard-list-row">
+            <span>
+              <b>${index + 1}.</b>
+              ${escapeHtml(product.name)}
+            </span>
+            <strong>${Number(product.quantity).toLocaleString("th-TH")} ชิ้น</strong>
+          </div>
+        `).join("")
+      : '<p class="dashboard-empty">ยังไม่มีข้อมูลสินค้าที่ขายได้</p>';
+
+    // วาดกราฟยอดขายรายเดือน
+    drawSalesChart(data.monthlySales || []);
+
+    message.hidden = true;
+    content.hidden = false;
+
+  } catch (error) {
+    message.hidden = false;
+    content.hidden = true;
+
+    message.innerHTML = `
+      <strong>โหลด Dashboard ไม่สำเร็จ</strong>
+      <p>${escapeHtml(error.message)}</p>
+      <p>ตรวจสอบการเข้าสู่ระบบและการเชื่อมต่อเซิร์ฟเวอร์</p>
+    `;
+  }
+}
+
+
+// วาดกราฟด้วย Canvas ไม่ต้องติดตั้ง Chart.js
+function drawSalesChart(monthlySales) {
+  const canvas = $("#salesChart");
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d");
+  const rect = canvas.getBoundingClientRect();
+
+  const width = Math.max(rect.width, 280);
+  const height = 300;
+  const ratio = window.devicePixelRatio || 1;
+
+  canvas.width = width * ratio;
+  canvas.height = height * ratio;
+  canvas.style.height = `${height}px`;
+
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const values = monthlySales.map(item =>
+    Number(item.sales || 0)
+  );
+
+  const maxValue = Math.max(...values, 1);
+
+  const padding = {
+    top: 20,
+    right: 15,
+    bottom: 55,
+    left: 65
+  };
+
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+
+  // เส้นกริดและตัวเลขแกน Y
+  ctx.font = "11px sans-serif";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+
+  for (let i = 0; i <= 4; i++) {
+    const y = padding.top + chartHeight * i / 4;
+    const value = maxValue * (4 - i) / 4;
+
+    ctx.beginPath();
+    ctx.strokeStyle = "#e5eef7";
+    ctx.lineWidth = 1;
+    ctx.moveTo(padding.left, y);
+    ctx.lineTo(width - padding.right, y);
+    ctx.stroke();
+
+    ctx.fillStyle = "#6b8298";
+    ctx.fillText(
+      value.toLocaleString("th-TH", {
+        maximumFractionDigits: 0
+      }),
+      padding.left - 8,
+      y
+    );
+  }
+
+  if (!monthlySales.length) {
+    ctx.fillStyle = "#6b8298";
+    ctx.textAlign = "center";
+    ctx.fillText("ไม่มีข้อมูล", width / 2, height / 2);
+    return;
+  }
+
+  const step = chartWidth / monthlySales.length;
+  const barWidth = Math.min(26, step * 0.58);
+
+  monthlySales.forEach((item, index) => {
+    const value = Number(item.sales || 0);
+    const barHeight = value / maxValue * chartHeight;
+
+    const x =
+      padding.left + index * step + (step - barWidth) / 2;
+
+    const y = padding.top + chartHeight - barHeight;
+
+    // แท่งกราฟ
+    ctx.fillStyle = "#2388df";
+    ctx.beginPath();
+
+    const radius = Math.min(5, barWidth / 2);
+
+    ctx.roundRect(
+      x,
+      y,
+      barWidth,
+      Math.max(barHeight, 1),
+      radius
+    );
+
+    ctx.fill();
+
+    // ป้ายเดือน
+    const parts = String(item.month).split("-");
+    const label = parts.length === 2
+      ? `${parts[1]}/${parts[0].slice(-2)}`
+      : String(item.month);
+
+    ctx.fillStyle = "#607b94";
+    ctx.font = "10px sans-serif";
+    ctx.textAlign = "center";
+
+    ctx.fillText(
+      label,
+      padding.left + index * step + step / 2,
+      height - padding.bottom + 18
+    );
+  });
+}
+
+
+// ปุ่มโหลดข้อมูลใหม่
+$("#refreshDashboard")?.addEventListener("click", () => {
+  renderDashboard();
 });
 document.addEventListener("submit", async event => {
   if (event.target.id === "authForm") { event.preventDefault(); await submitAuth(event.target); }
