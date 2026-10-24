@@ -51,17 +51,6 @@ function showView(name) {
   if (name === "dashboard") renderDashboard();
   if (name === "account") updateAccountUI();
 }
-  state.currentView = name;
-  document.querySelectorAll(".view").forEach(el => el.hidden = el.id !== `${name}View`);
-  window.scrollTo({ top: 0, behavior: "smooth" });
-  if (name === "shop") renderShop();
-  if (name === "cart") renderCart();
-  if (name === "orders") renderOrders();
-  if (name === "detail") renderProductDetail();
-  if (name === "rewards") renderRewards();
-  if (name === "admin") renderAdmin();
-  if (name === "account") updateAccountUI();
-}
 function productCard(p) {
   const image = p.image ? `<img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name)}" loading="lazy" onerror="this.style.display='none'">` : "";
   return `<article class="product-card">
