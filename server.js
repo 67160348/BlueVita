@@ -1,4 +1,5 @@
 require("dotenv").config();
+
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
@@ -8,87 +9,415 @@ const jwt = require("jsonwebtoken");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, "data");
-// Ensure the data directory exists on first deploy.
+
 fs.mkdirSync(DATA_DIR, { recursive: true });
+
 const PRODUCTS_FILE = path.join(DATA_DIR, "products.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const ORDERS_FILE = path.join(DATA_DIR, "orders.json");
 const REVIEWS_FILE = path.join(DATA_DIR, "reviews.json");
+
 const JWT_SECRET = process.env.JWT_SECRET || "development-only-change-me";
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
-app.use('/images', express.static(path.join(__dirname, 'images')));
+app.use("/images", express.static(path.join(__dirname, "images")));
+
+// =====================================
+// JSON HELPERS
+// =====================================
 
 function readJson(file, fallback = []) {
-  try { return JSON.parse(fs.readFileSync(file, "utf8")); }
-  catch { return fallback; }
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return fallback;
+  }
 }
+
 function writeJson(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2));
 }
+
 function publicUser(user) {
-  return { id: user.id, name: user.name, email: user.email, role: user.role, points: Number(user.points || 0) };
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    points: Number(user.points || 0)
+  };
 }
+
 function makeToken(user) {
-  return jwt.sign({ id: user.id, role: user.role, email: user.email }, JWT_SECRET, { expiresIn: "8h" });
+  return jwt.sign(
+    {
+      id: user.id,
+      role: user.role,
+      email: user.email
+    },
+    JWT_SECRET,
+    { expiresIn: "8h" }
+  );
 }
+
+// =====================================
+// AUTHENTICATION
+// =====================================
+
 function auth(requiredRole) {
   return (req, res, next) => {
     const header = req.headers.authorization || "";
-    const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+    const token = header.startsWith("Bearer ")
+      ? header.slice(7)
+      : "";
+
     try {
-      if (!token) throw new Error("Missing token");
-      req.user = jwt.verify(token, JWT_SECRET);
-      if (requiredRole && req.user.role !== requiredRole) {
-        return res.status(403).json({ error: "คุณไม่มีสิทธิ์เข้าถึงส่วนนี้" });
+      if (!token) {
+        throw new Error("Missing token");
       }
+
+      req.user = jwt.verify(token, JWT_SECRET);
+
+      if (requiredRole && req.user.role !== requiredRole) {
+        return res.status(403).json({
+          error: "คุณไม่มีสิทธิ์เข้าถึงส่วนนี้"
+        });
+      }
+
       next();
     } catch {
-      return res.status(401).json({ error: "กรุณาเข้าสู่ระบบใหม่" });
+      return res.status(401).json({
+        error: "กรุณาเข้าสู่ระบบใหม่"
+      });
     }
   };
 }
 
-// Demo setup: creates an admin account on first run. Change the password before real deployment.
+// =====================================
+// CREATE DEMO ADMIN
+// =====================================
+
 function ensureAdmin() {
   const users = readJson(USERS_FILE, []);
-  const email = (process.env.ADMIN_EMAIL || "admin@bluevita.local").toLowerCase();
-  if (!users.some(u => u.email === email)) {
-    const password = process.env.ADMIN_PASSWORD || "ChangeThisPassword123!";
+  const email = (
+    process.env.ADMIN_EMAIL || "admin@bluevita.local"
+  ).trim().toLowerCase();
+
+  if (!users.some(user => user.email === email)) {
+    const password =
+      process.env.ADMIN_PASSWORD || "ChangeThisPassword123!";
+
     users.push({
-      id: "admin-001", name: "BlueVita Admin", email,
-      passwordHash: bcrypt.hashSync(password, 10), role: "admin"
+      id: "admin-001",
+      name: "BlueVita Admin",
+      email,
+      passwordHash: bcrypt.hashSync(password, 10),
+      role: "admin",
+      points: 0,
+      vouchers: []
     });
+
     writeJson(USERS_FILE, users);
-    console.log(`Demo admin created: ${email}`);
-    if (!process.env.ADMIN_PASSWORD) console.log("Demo password: ChangeThisPassword123! (change before deployment)");
+
+    console.log(`Admin account created: ${email}`);
+
+    if (!process.env.ADMIN_PASSWORD) {
+      console.warn(
+        "WARNING: Set ADMIN_PASSWORD in your environment variables before deployment."
+      );
+    }
   }
 }
+
 ensureAdmin();
 
-app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+// =====================================
+// HEALTH CHECK
+// =====================================
 
-app.get("/api/products/:id/reviews", (req, res) => {
-  const reviews = readJson(REVIEWS_FILE, []).filter(r => r.productId === req.params.id);
-  res.json(reviews.map(r => ({ name: r.name, rating: r.rating, comment: r.comment, createdAt: r.createdAt })));
+app.get("/api/health", (_req, res) => {
+  res.json({ status: "ok" });
 });
+
+// =====================================
+// PRODUCTS
+// =====================================
+
+// ดูสินค้าและค้นหาสินค้า
+app.get("/api/products", (req, res) => {
+  let products = readJson(PRODUCTS_FILE, []);
+
+  const q = String(req.query.q || "")
+    .trim()
+    .toLowerCase();
+
+  const category = String(req.query.category || "").trim();
+
+  if (q) {
+    products = products.filter(product =>
+      `${product.name || ""} ${product.description || ""} ${product.category || ""}`
+        .toLowerCase()
+        .includes(q)
+    );
+  }
+
+  if (category && category !== "ทั้งหมด") {
+    products = products.filter(
+      product => product.category === category
+    );
+  }
+
+  res.json(products);
+});
+
+// =====================================
+// REGISTER
+// =====================================
+
+app.post("/api/auth/register", (req, res) => {
+  const { name, email, password } = req.body || {};
+
+  if (
+    !name ||
+    !email ||
+    typeof password !== "string" ||
+    password.length < 8
+  ) {
+    return res.status(400).json({
+      error: "กรอกชื่อ อีเมล และรหัสผ่านอย่างน้อย 8 ตัวอักษร"
+    });
+  }
+
+  const users = readJson(USERS_FILE, []);
+  const normalizedEmail = String(email).trim().toLowerCase();
+
+  if (users.some(user => user.email === normalizedEmail)) {
+    return res.status(409).json({
+      error: "อีเมลนี้มีบัญชีแล้ว"
+    });
+  }
+
+  const user = {
+    id: `user-${Date.now()}`,
+    name: String(name).trim(),
+    email: normalizedEmail,
+    passwordHash: bcrypt.hashSync(password, 10),
+    role: "customer",
+    points: 0,
+    vouchers: []
+  };
+
+  users.push(user);
+  writeJson(USERS_FILE, users);
+
+  res.status(201).json({
+    token: makeToken(user),
+    user: publicUser(user)
+  });
+});
+
+// =====================================
+// LOGIN
+// =====================================
+
+app.post("/api/auth/login", (req, res) => {
+  const { email, password } = req.body || {};
+  const users = readJson(USERS_FILE, []);
+
+  const normalizedEmail = String(email || "")
+    .trim()
+    .toLowerCase();
+
+  const user = users.find(
+    item => item.email === normalizedEmail
+  );
+
+  if (
+    !user ||
+    !bcrypt.compareSync(
+      String(password || ""),
+      user.passwordHash || ""
+    )
+  ) {
+    return res.status(401).json({
+      error: "อีเมลหรือรหัสผ่านไม่ถูกต้อง"
+    });
+  }
+
+  res.json({
+    token: makeToken(user),
+    user: publicUser(user)
+  });
+});
+
+// =====================================
+// CURRENT USER
+// =====================================
+
+app.get("/api/auth/me", auth(), (req, res) => {
+  const user = readJson(USERS_FILE, []).find(
+    item => item.id === req.user.id
+  );
+
+  if (!user) {
+    return res.status(404).json({
+      error: "ไม่พบบัญชีผู้ใช้"
+    });
+  }
+
+  res.json({ user: publicUser(user) });
+});
+
+// =====================================
+// CREATE ORDER
+// =====================================
+
+app.post("/api/orders", auth(), (req, res) => {
+  const {
+    items,
+    shippingName,
+    phone,
+    address
+  } = req.body || {};
+
+  if (
+    !Array.isArray(items) ||
+    items.length === 0 ||
+    !shippingName ||
+    !phone ||
+    !address
+  ) {
+    return res.status(400).json({
+      error: "กรุณากรอกข้อมูลจัดส่งและสินค้าให้ครบ"
+    });
+  }
+
+  const products = readJson(PRODUCTS_FILE, []);
+  const orderItems = [];
+
+  for (const item of items) {
+    const product = products.find(
+      product => product.id === item.id
+    );
+
+    const qty = Number(item.quantity);
+
+    if (
+      !product ||
+      !Number.isInteger(qty) ||
+      qty < 1 ||
+      qty > 99
+    ) {
+      return res.status(400).json({
+        error: "ข้อมูลสินค้าในตะกร้าไม่ถูกต้อง"
+      });
+    }
+
+    if (Number(product.stock) < qty) {
+      return res.status(400).json({
+        error: `สินค้า ${product.name} มีไม่พอ`
+      });
+    }
+
+    orderItems.push({
+      id: product.id,
+      name: product.name,
+      price: Number(product.price),
+      quantity: qty
+    });
+  }
+
+  // ตัดสต็อกสินค้า
+  for (const item of orderItems) {
+    const product = products.find(
+      product => product.id === item.id
+    );
+
+    product.stock = Number(product.stock) - item.quantity;
+  }
+
+  writeJson(PRODUCTS_FILE, products);
+
+  const orders = readJson(ORDERS_FILE, []);
+
+  const order = {
+    id: `BV-${Date.now()}`,
+    userId: req.user.id,
+    items: orderItems,
+    total: orderItems.reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0
+    ),
+    shippingName: String(shippingName),
+    phone: String(phone),
+    address: String(address),
+    status: "รอดำเนินการ",
+    createdAt: new Date().toISOString()
+  };
+
+  orders.unshift(order);
+  writeJson(ORDERS_FILE, orders);
+
+  res.status(201).json({
+    message: "สร้างคำสั่งซื้อแล้ว (เดโม)",
+    order
+  });
+});
+
+// =====================================
+// CUSTOMER ORDERS
+// =====================================
+
+app.get("/api/orders/mine", auth(), (req, res) => {
+  const orders = readJson(ORDERS_FILE, []);
+
+  res.json(
+    orders.filter(order => order.userId === req.user.id)
+  );
+});
+
+// =====================================
+// PRODUCT REVIEWS
+// =====================================
+
+// ดูรีวิวของสินค้า
+app.get("/api/products/:id/reviews", (req, res) => {
+  const reviews = readJson(REVIEWS_FILE, []).filter(
+    review => review.productId === req.params.id
+  );
+
+  res.json(
+    reviews.map(review => ({
+      name: review.name,
+      rating: review.rating,
+      comment: review.comment,
+      createdAt: review.createdAt
+    }))
+  );
+});
+
+// =====================================
+// REWARDS
+// =====================================
 
 app.get("/api/rewards", auth(), (req, res) => {
   const orders = readJson(ORDERS_FILE, []).filter(
-    o => o.userId === req.user.id && o.status !== "ยกเลิก"
+    order =>
+      order.userId === req.user.id &&
+      order.status !== "ยกเลิก"
   );
 
   const reviews = readJson(REVIEWS_FILE, []);
   const eligible = [];
 
   for (const order of orders) {
-    for (const item of order.items) {
+    for (const item of order.items || []) {
       const alreadyReviewed = reviews.some(
-        r =>
-          r.userId === req.user.id &&
-          r.orderId === order.id &&
-          r.productId === item.id
+        review =>
+          review.userId === req.user.id &&
+          review.orderId === order.id &&
+          review.productId === item.id
       );
 
       if (!alreadyReviewed) {
@@ -102,7 +431,7 @@ app.get("/api/rewards", auth(), (req, res) => {
   }
 
   const user = readJson(USERS_FILE, []).find(
-    u => u.id === req.user.id
+    item => item.id === req.user.id
   );
 
   res.json({
@@ -111,41 +440,107 @@ app.get("/api/rewards", auth(), (req, res) => {
     vouchers: user?.vouchers || []
   });
 });
-  
+
+// =====================================
+// SUBMIT REVIEW
+// =====================================
+
 app.post("/api/reviews", auth(), (req, res) => {
-  const { orderId, productId, rating, comment } = req.body || {};
-  if (!orderId || !productId || !Number.isInteger(Number(rating)) || Number(rating) < 1 || Number(rating) > 5 || typeof comment !== "string" || comment.trim().length < 3 || comment.trim().length > 500) {
-    return res.status(400).json({ error: "กรุณาให้คะแนน 1–5 และเขียนรีวิว 3–500 ตัวอักษร" });
+  const {
+    orderId,
+    productId,
+    rating,
+    comment
+  } = req.body || {};
+
+  if (
+    !orderId ||
+    !productId ||
+    !Number.isInteger(Number(rating)) ||
+    Number(rating) < 1 ||
+    Number(rating) > 5 ||
+    typeof comment !== "string" ||
+    comment.trim().length < 3 ||
+    comment.trim().length > 500
+  ) {
+    return res.status(400).json({
+      error: "กรุณาให้คะแนน 1–5 และเขียนรีวิว 3–500 ตัวอักษร"
+    });
   }
-    const orders = readJson(ORDERS_FILE, []);
+
+  const orders = readJson(ORDERS_FILE, []);
+
   const order = orders.find(
-    o =>
-      o.id === orderId &&
-      o.userId === req.user.id &&
-      o.status !== "ยกเลิก"
+    item =>
+      item.id === orderId &&
+      item.userId === req.user.id &&
+      item.status !== "ยกเลิก"
   );
 
-  if (!order || !order.items.some(i => i.id === productId)) {
+  if (
+    !order ||
+    !(order.items || []).some(item => item.id === productId)
+  ) {
     return res.status(403).json({
       error: "รีวิวได้เฉพาะสินค้าที่ซื้อและไม่ถูกยกเลิกเท่านั้น"
     });
   }
 
   const reviews = readJson(REVIEWS_FILE, []);
-  if (reviews.some(r => r.userId === req.user.id && r.orderId === orderId && r.productId === productId)) {
-    return res.status(409).json({ error: "คุณรีวิวสินค้านี้ในคำสั่งซื้อนี้แล้ว" });
+
+  if (
+    reviews.some(
+      review =>
+        review.userId === req.user.id &&
+        review.orderId === orderId &&
+        review.productId === productId
+    )
+  ) {
+    return res.status(409).json({
+      error: "คุณรีวิวสินค้านี้ในคำสั่งซื้อนี้แล้ว"
+    });
   }
-  const user = readJson(USERS_FILE, []);
-  const account = user.find(u => u.id === req.user.id);
-  if (!account) return res.status(404).json({ error: "ไม่พบบัญชีผู้ใช้" });
-  const product = readJson(PRODUCTS_FILE, []).find(p => p.id === productId);
-  reviews.unshift({ id: `review-${Date.now()}`, userId: account.id, name: account.name, orderId, productId, productName: product?.name || "", rating: Number(rating), comment: comment.trim(), createdAt: new Date().toISOString() });
-  account.points = Number(account.points || 0) + 1;
-  writeJson(REVIEWS_FILE, reviews); writeJson(USERS_FILE, user);
-  res.status(201).json({ message: "ขอบคุณสำหรับรีวิว", points: account.points });
+
+  const users = readJson(USERS_FILE, []);
+  const user = users.find(
+    item => item.id === req.user.id
+  );
+
+  if (!user) {
+    return res.status(404).json({
+      error: "ไม่พบบัญชีผู้ใช้"
+    });
+  }
+
+  const product = readJson(PRODUCTS_FILE, []).find(
+    item => item.id === productId
+  );
+
+  reviews.unshift({
+    id: `review-${Date.now()}`,
+    userId: user.id,
+    name: user.name,
+    orderId,
+    productId,
+    productName: product?.name || "",
+    rating: Number(rating),
+    comment: comment.trim(),
+    createdAt: new Date().toISOString()
+  });
+
+  user.points = Number(user.points || 0) + 1;
+
+  writeJson(REVIEWS_FILE, reviews);
+  writeJson(USERS_FILE, users);
+
+  res.status(201).json({
+    message: "ขอบคุณสำหรับรีวิว",
+    points: user.points
+  });
 });
+
 // =====================================
-// BLUEVITA REWARDS: แลกคะแนนเป็นคูปอง
+// REDEEM POINTS
 // 10,000 คะแนน = คูปอง 10 บาท
 // =====================================
 
@@ -154,7 +549,10 @@ const COUPON_VALUE = 10;
 
 app.post("/api/rewards/redeem", auth(), (req, res) => {
   const users = readJson(USERS_FILE, []);
-  const user = users.find(u => u.id === req.user.id);
+
+  const user = users.find(
+    item => item.id === req.user.id
+  );
 
   if (!user) {
     return res.status(404).json({
@@ -170,10 +568,8 @@ app.post("/api/rewards/redeem", auth(), (req, res) => {
     });
   }
 
-  // หักคะแนนเมื่อแลกคูปองสำเร็จ
   user.points = currentPoints - REDEEM_POINTS;
 
-  // สร้างรายการคูปองประจำบัญชี
   if (!Array.isArray(user.vouchers)) {
     user.vouchers = [];
   }
@@ -192,106 +588,61 @@ app.post("/api/rewards/redeem", auth(), (req, res) => {
 
   writeJson(USERS_FILE, users);
 
-  return res.json({
+  res.json({
     message: "แลกคูปองสำเร็จ!",
     points: user.points,
     voucher
   });
 });
 
-
-
-app.get("/api/products", (req, res) => {
-  let products = readJson(PRODUCTS_FILE, []);
-  const q = String(req.query.q || "").trim().toLowerCase();
-  const category = String(req.query.category || "").trim();
-  if (q) products = products.filter(p =>
-    `${p.name} ${p.description} ${p.category}`.toLowerCase().includes(q));
-  if (category && category !== "ทั้งหมด") products = products.filter(p => p.category === category);
-  res.json(products);
-});
-
-app.post("/api/auth/register", (req, res) => {
-  const { name, email, password } = req.body || {};
-  if (!name || !email || typeof password !== "string" || password.length < 8) {
-    return res.status(400).json({ error: "กรอกชื่อ อีเมล และรหัสผ่านอย่างน้อย 8 ตัวอักษร" });
-  }
-  const users = readJson(USERS_FILE, []);
-  const normalizedEmail = String(email).trim().toLowerCase();
-  if (users.some(u => u.email === normalizedEmail)) {
-    return res.status(409).json({ error: "อีเมลนี้มีบัญชีแล้ว" });
-  }
-  const user = {
-    id: `user-${Date.now()}`, name: String(name).trim(), email: normalizedEmail,
-    passwordHash: bcrypt.hashSync(password, 10), role: "customer"
-  };
-  users.push(user);
-  writeJson(USERS_FILE, users);
-  res.status(201).json({ token: makeToken(user), user: publicUser(user) });
-});
-
-app.post("/api/auth/login", (req, res) => {
-  const { email, password } = req.body || {};
-  const users = readJson(USERS_FILE, []);
-  const user = users.find(u => u.email === String(email || "").trim().toLowerCase());
-  if (!user || !bcrypt.compareSync(String(password || ""), user.passwordHash)) {
-    return res.status(401).json({ error: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" });
-  }
-  res.json({ token: makeToken(user), user: publicUser(user) });
-});
-
-app.get("/api/auth/me", auth(), (req, res) => {
-  const user = readJson(USERS_FILE, []).find(u => u.id === req.user.id);
-  if (!user) return res.status(404).json({ error: "ไม่พบบัญชีผู้ใช้" });
-  res.json({ user: publicUser(user) });
-});
-
-app.post("/api/orders", auth(), (req, res) => {
-  const { items, shippingName, phone, address } = req.body || {};
-  if (!Array.isArray(items) || items.length === 0 || !shippingName || !phone || !address) {
-    return res.status(400).json({ error: "กรุณากรอกข้อมูลจัดส่งและสินค้าให้ครบ" });
-  }
-  const products = readJson(PRODUCTS_FILE, []);
-  const orderItems = [];
-  for (const item of items) {
-    const product = products.find(p => p.id === item.id);
-    const qty = Number(item.quantity);
-    if (!product || !Number.isInteger(qty) || qty < 1 || qty > 99) {
-      return res.status(400).json({ error: "ข้อมูลสินค้าในตะกร้าไม่ถูกต้อง" });
-    }
-    if (product.stock < qty) return res.status(400).json({ error: `สินค้า ${product.name} มีไม่พอ` });
-    orderItems.push({ id: product.id, name: product.name, price: product.price, quantity: qty });
-  }
-  for (const item of orderItems) {
-    const product = products.find(p => p.id === item.id);
-    product.stock -= item.quantity;
-  }
-  writeJson(PRODUCTS_FILE, products);
-  const orders = readJson(ORDERS_FILE, []);
-  const order = {
-    id: `BV-${Date.now()}`, userId: req.user.id, items: orderItems,
-    total: orderItems.reduce((sum, item) => sum + item.price * item.quantity, 0),
-    shippingName: String(shippingName), phone: String(phone), address: String(address),
-    status: "รอดำเนินการ", createdAt: new Date().toISOString()
-  };
-  orders.unshift(order);
-  writeJson(ORDERS_FILE, orders);
-  res.status(201).json({ message: "สร้างคำสั่งซื้อแล้ว (เดโม)", order });
-});
-
-app.get("/api/orders/mine", auth(), (req, res) => {
-  res.json(readJson(ORDERS_FILE, []).filter(o => o.userId === req.user.id));
-});
+// =====================================
+// ADMIN: VIEW ALL ORDERS
+// =====================================
 
 app.get("/api/admin/orders", auth("admin"), (_req, res) => {
   res.json(readJson(ORDERS_FILE, []));
 });
 
+// =====================================
+// ADMIN: UPDATE ORDER STATUS
+// =====================================
+
 app.patch("/api/admin/orders/:id", auth("admin"), (req, res) => {
-  // ============================================
-// BLUEVITA SALES DASHBOARD
-// ข้อมูลจากคำสั่งซื้อจริง และเฉพาะแอดมินเท่านั้น
-// ============================================
+  const allowed = [
+    "รอดำเนินการ",
+    "กำลังจัดส่ง",
+    "จัดส่งแล้ว",
+    "ยกเลิก"
+  ];
+
+  const { status } = req.body || {};
+
+  if (!allowed.includes(status)) {
+    return res.status(400).json({
+      error: "สถานะไม่ถูกต้อง"
+    });
+  }
+
+  const orders = readJson(ORDERS_FILE, []);
+  const order = orders.find(
+    item => item.id === req.params.id
+  );
+
+  if (!order) {
+    return res.status(404).json({
+      error: "ไม่พบคำสั่งซื้อ"
+    });
+  }
+
+  order.status = status;
+  writeJson(ORDERS_FILE, orders);
+
+  res.json({ order });
+});
+
+// =====================================
+// ADMIN: SALES DASHBOARD
+// =====================================
 
 app.get("/api/admin/dashboard", auth("admin"), (_req, res) => {
   try {
@@ -299,37 +650,46 @@ app.get("/api/admin/dashboard", auth("admin"), (_req, res) => {
     const users = readJson(USERS_FILE, []);
     const products = readJson(PRODUCTS_FILE, []);
 
-    // ไม่นับคำสั่งซื้อที่ยกเลิก
+    // ไม่นับคำสั่งซื้อที่ถูกยกเลิกในยอดขาย
     const validOrders = orders.filter(
       order => order.status !== "ยกเลิก"
     );
 
-    // ยอดขายรวมจากคำสั่งซื้อที่ไม่ถูกยกเลิก
     const totalSales = validOrders.reduce(
       (sum, order) => sum + Number(order.total || 0),
       0
     );
 
-    // จำนวนสินค้าที่ขายได้
     const totalItemsSold = validOrders.reduce(
-      (sum, order) =>
-        sum +
-        (Array.isArray(order.items)
-          ? order.items.reduce(
-              (itemSum, item) =>
-                itemSum + Number(item.quantity || 0),
-              0
-            )
-          : 0),
+      (sum, order) => {
+        const items = Array.isArray(order.items)
+          ? order.items
+          : [];
+
+        return sum + items.reduce(
+          (itemSum, item) =>
+            itemSum + Number(item.quantity || 0),
+          0
+        );
+      },
       0
     );
 
-    // จำนวนสมาชิก ไม่รวมแอดมิน
     const totalMembers = users.filter(
       user => user.role !== "admin"
     ).length;
 
-    // สรุปยอดขายรายเดือนย้อนหลัง 12 เดือน
+    const statusSummary = {};
+
+    // แสดงทุกสถานะ รวมถึงคำสั่งซื้อที่ยกเลิก
+    for (const order of orders) {
+      const status = order.status || "ไม่ระบุ";
+
+      statusSummary[status] =
+        (statusSummary[status] || 0) + 1;
+    }
+
+    // ยอดขายรายเดือนย้อนหลัง 12 เดือน
     const monthlySales = [];
     const now = new Date();
 
@@ -345,6 +705,8 @@ app.get("/api/admin/dashboard", auth("admin"), (_req, res) => {
 
       const sales = validOrders
         .filter(order => {
+          if (!order.createdAt) return false;
+
           const orderDate = new Date(order.createdAt);
 
           return (
@@ -364,22 +726,15 @@ app.get("/api/admin/dashboard", auth("admin"), (_req, res) => {
       });
     }
 
-    // สรุปจำนวนคำสั่งซื้อแต่ละสถานะ
-    const statusSummary = {};
-
-    validOrders.forEach(order => {
-      const status = order.status || "ไม่ระบุ";
-      statusSummary[status] =
-        (statusSummary[status] || 0) + 1;
-    });
-
-    // สินค้าขายดี 5 อันดับแรก
+    // สินค้าขายดี 5 อันดับ
     const productSales = {};
 
-    validOrders.forEach(order => {
-      if (!Array.isArray(order.items)) return;
+    for (const order of validOrders) {
+      const items = Array.isArray(order.items)
+        ? order.items
+        : [];
 
-      order.items.forEach(item => {
+      for (const item of items) {
         const id = String(item.id || item.productId || item.name);
 
         if (!productSales[id]) {
@@ -389,9 +744,11 @@ app.get("/api/admin/dashboard", auth("admin"), (_req, res) => {
           };
         }
 
-        productSales[id].quantity += Number(item.quantity || 0);
-      });
-    });
+        productSales[id].quantity += Number(
+          item.quantity || 0
+        );
+      }
+    }
 
     const topProducts = Object.values(productSales)
       .sort((a, b) => b.quantity - a.quantity)
@@ -402,11 +759,11 @@ app.get("/api/admin/dashboard", auth("admin"), (_req, res) => {
       totalOrders: validOrders.length,
       totalItemsSold,
       totalMembers,
+      totalProducts: products.length,
       monthlySales,
       statusSummary,
       topProducts
     });
-
   } catch (error) {
     console.error("Dashboard error:", error);
 
@@ -415,171 +772,88 @@ app.get("/api/admin/dashboard", auth("admin"), (_req, res) => {
     });
   }
 });
-  const allowed = ["รอดำเนินการ", "กำลังจัดส่ง", "จัดส่งแล้ว", "ยกเลิก"];
-  const { status } = req.body || {};
-  if (!allowed.includes(status)) return res.status(400).json({ error: "สถานะไม่ถูกต้อง" });
-  const orders = readJson(ORDERS_FILE, []);
-  const order = orders.find(o => o.id === req.params.id);
-  if (!order) return res.status(404).json({ error: "ไม่พบคำสั่งซื้อ" });
-  order.status = status;
-  writeJson(ORDERS_FILE, orders);
-  res.json({ order });
-});
+
+// =====================================
+// ADMIN: ADD PRODUCT
+// =====================================
 
 app.post("/api/admin/products", auth("admin"), (req, res) => {
-  const { name, category, price, description, image, stock, featured } = req.body || {};
-  if (!name || !category || !Number.isFinite(Number(price)) || Number(price) < 0) {
-    return res.status(400).json({ error: "กรอกชื่อ หมวดหมู่ และราคาที่ถูกต้อง" });
-  }
-  const products = readJson(PRODUCTS_FILE, []);
-  const product = {
-    id: `p-${Date.now()}`, name: String(name), category: String(category),
-    price: Number(price), description: String(description || ""),
-    image: String(image || ""), stock: Math.max(0, Number(stock) || 0), featured: Boolean(featured)
-  };
-  products.push(product);
-  writeJson(PRODUCTS_FILE, products);
-  res.status(201).json(product);
-});
+  const {
+    name,
+    category,
+    price,
+    description,
+    image,
+    stock,
+    featured
+  } = req.body || {};
 
-app.delete("/api/admin/products/:id", auth("admin"), (req, res) => {
-  const products = readJson(PRODUCTS_FILE, []);
-  const next = products.filter(p => p.id !== req.params.id);
-  if (next.length === products.length) return res.status(404).json({ error: "ไม่พบสินค้า" });
-  writeJson(PRODUCTS_FILE, next);
-  res.json({ message: "ลบสินค้าแล้ว" });
-});
-
-// ======================================
-// BLUEVITA ADMIN DASHBOARD
-// สรุปยอดขายและข้อมูลธุรกิจ
-// เฉพาะผู้ดูแลระบบเท่านั้น
-// ======================================
-
-app.get("/api/admin/dashboard", auth("admin"), (_req, res) => {
-  const orders = readJson(ORDERS_FILE, []);
-  const users = readJson(USERS_FILE, []);
-  const products = readJson(PRODUCTS_FILE, []);
-
-  // ไม่นับคำสั่งซื้อที่ถูกยกเลิกในยอดขาย
-  const validOrders = orders.filter(
-    order => order.status !== "ยกเลิก"
-  );
-
-  const totalSales = validOrders.reduce(
-    (sum, order) => sum + Number(order.total || 0),
-    0
-  );
-
-  const totalItemsSold = validOrders.reduce(
-    (sum, order) =>
-      sum +
-      (Array.isArray(order.items)
-        ? order.items.reduce(
-            (itemSum, item) =>
-              itemSum + Number(item.quantity || 0),
-            0
-          )
-        : 0),
-    0
-  );
-
-  // สรุปสถานะคำสั่งซื้อ
-  const orderStatuses = {
-    "รอดำเนินการ": 0,
-    "กำลังจัดส่ง": 0,
-    "จัดส่งแล้ว": 0,
-    "ยกเลิก": 0
-  };
-
-  for (const order of orders) {
-    if (Object.hasOwn(orderStatuses, order.status)) {
-      orderStatuses[order.status]++;
-    }
-  }
-
-  // ยอดขายรายเดือน 12 เดือนล่าสุด
-  const now = new Date();
-  const monthlySales = [];
-
-  for (let offset = 11; offset >= 0; offset--) {
-    const date = new Date(
-      now.getFullYear(),
-      now.getMonth() - offset,
-      1
-    );
-
-    const year = date.getFullYear();
-    const month = date.getMonth();
-
-    const sales = validOrders
-      .filter(order => {
-        if (!order.createdAt) return false;
-
-        const orderDate = new Date(order.createdAt);
-
-        return (
-          !Number.isNaN(orderDate.getTime()) &&
-          orderDate.getFullYear() === year &&
-          orderDate.getMonth() === month
-        );
-      })
-      .reduce(
-        (sum, order) => sum + Number(order.total || 0),
-        0
-      );
-
-    monthlySales.push({
-      month: `${year}-${String(month + 1).padStart(2, "0")}`,
-      sales
+  if (
+    !name ||
+    !category ||
+    !Number.isFinite(Number(price)) ||
+    Number(price) < 0
+  ) {
+    return res.status(400).json({
+      error: "กรอกชื่อ หมวดหมู่ และราคาที่ถูกต้อง"
     });
   }
 
-  // สินค้าขายดี 5 อันดับ
-  const productSales = {};
+  const products = readJson(PRODUCTS_FILE, []);
 
-  for (const order of validOrders) {
-    if (!Array.isArray(order.items)) continue;
+  const product = {
+    id: `p-${Date.now()}`,
+    name: String(name),
+    category: String(category),
+    price: Number(price),
+    description: String(description || ""),
+    image: String(image || ""),
+    stock: Math.max(0, Number(stock) || 0),
+    featured: Boolean(featured)
+  };
 
-    for (const item of order.items) {
-      const id = item.id;
+  products.push(product);
+  writeJson(PRODUCTS_FILE, products);
 
-      if (!productSales[id]) {
-        productSales[id] = {
-          productId: id,
-          name: item.name || "ไม่ระบุชื่อสินค้า",
-          quantity: 0,
-          revenue: 0
-        };
-      }
+  res.status(201).json(product);
+});
 
-      productSales[id].quantity += Number(item.quantity || 0);
-      productSales[id].revenue +=
-        Number(item.price || 0) * Number(item.quantity || 0);
-    }
+// =====================================
+// ADMIN: DELETE PRODUCT
+// =====================================
+
+app.delete("/api/admin/products/:id", auth("admin"), (req, res) => {
+  const products = readJson(PRODUCTS_FILE, []);
+
+  const nextProducts = products.filter(
+    product => product.id !== req.params.id
+  );
+
+  if (nextProducts.length === products.length) {
+    return res.status(404).json({
+      error: "ไม่พบสินค้า"
+    });
   }
 
-  const topProducts = Object.values(productSales)
-    .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 5);
+  writeJson(PRODUCTS_FILE, nextProducts);
 
-  // จำนวนสมาชิก ไม่นับบัญชีแอดมิน
-  const totalMembers = users.filter(
-    user => user.role !== "admin"
-  ).length;
-
-  res.json({
-    summary: {
-      totalSales,
-      totalOrders: validOrders.length,
-      totalItemsSold,
-      totalMembers,
-      totalProducts: products.length
-    },
-    monthlySales,
-    topProducts,
-    orderStatuses
-  });
+  res.json({ message: "ลบสินค้าแล้ว" });
 });
-app.get("*", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
-app.listen(PORT, () => console.log(`BlueVita running at http://localhost:${PORT}`));
+
+// =====================================
+// FRONTEND FALLBACK
+// =====================================
+
+app.get("*", (_req, res) => {
+  res.sendFile(
+    path.join(__dirname, "public", "index.html")
+  );
+});
+
+// =====================================
+// START SERVER
+// =====================================
+
+app.listen(PORT, () => {
+  console.log(`BlueVita running on port ${PORT}`);
+});
